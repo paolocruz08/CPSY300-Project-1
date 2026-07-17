@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nutritional Insights Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.0/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .loading { display: none; }
+        .loading.active { display: flex; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-4px); }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <header class="bg-blue-600 p-4 text-white shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold">🥗 Nutritional Insights Dashboard</h1>
+                <p class="text-blue-200 text-sm mt-1">CPSY300 · Group 11 · Phase 2 · Powered by Azure Functions</p>
+            </div>
+            <div id="execTime" class="text-right text-sm text-blue-200 hidden">
+                <p>⚡ Function execution time</p>
+                <p id="execTimeValue" class="text-white font-bold text-lg"></p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Loading Indicator -->
+    <div id="loadingBar" class="loading active items-center justify-center py-20 flex-col gap-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600"></div>
+        <p class="text-gray-600 text-lg font-medium">Fetching data from Azure Function...</p>
+    </div>
+
+    <!-- Error Message -->
+    <div id="errorMsg" class="hidden container mx-auto mt-6 px-6">
+        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <strong>Error:</strong> <span id="errorText"></span>
+        </div>
+    </div>
+
+    <main id="mainContent" class="container mx-auto p-6 hidden">
+
+        <!-- Stats Row -->
+        <section class="mb-8 grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div class="stat-card bg-white p-6 shadow-lg rounded-lg text-center">
+                <p class="text-gray-500 text-sm uppercase tracking-wide">Total Recipes</p>
+                <p id="totalRecipes" class="text-4xl font-bold text-blue-600 mt-2">-</p>
+            </div>
+            <div class="stat-card bg-white p-6 shadow-lg rounded-lg text-center">
+                <p class="text-gray-500 text-sm uppercase tracking-wide">Diet Types</p>
+                <p id="dietTypes" class="text-4xl font-bold text-green-600 mt-2">-</p>
+            </div>
+            <div class="stat-card bg-white p-6 shadow-lg rounded-lg text-center">
+                <p class="text-gray-500 text-sm uppercase tracking-wide">Execution Time</p>
+                <p id="execTimeStat" class="text-4xl font-bold text-purple-600 mt-2">-</p>
+            </div>
+        </section>
+
+        <!-- Filters -->
+        <section class="mb-8 bg-white p-4 shadow rounded-lg">
+            <h2 class="text-xl font-semibold mb-3">Filters & Data Interaction</h2>
+            <div class="flex flex-wrap gap-4 items-center">
+                <input type="text" id="searchInput" placeholder="Search by Diet Type..." 
+                    class="p-2 border rounded w-full sm:w-64" oninput="filterData()">
+                <select id="dietFilter" class="p-2 border rounded w-full sm:w-auto" onchange="filterData()">
+                    <option value="all">All Diet Types</option>
+                    <option value="vegan">Vegan</option>
+                    <option value="keto">Keto</option>
+                    <option value="paleo">Paleo</option>
+                    <option value="mediterranean">Mediterranean</option>
+                    <option value="dash">DASH</option>
+                </select>
+                <button onclick="refreshData()" class="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700">
+                    🔄 Refresh Data
+                </button>
+            </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Nutritional Insights</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <!-- Bar Chart -->
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold text-lg mb-1">📊 Average Macronutrients by Diet Type</h3>
+                    <p class="text-sm text-gray-500 mb-3">Average protein, carbs and fat per diet type across all recipes.</p>
+                    <canvas id="barChart"></canvas>
+                </div>
+
+                <!-- Pie Chart -->
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold text-lg mb-1">🥧 Recipe Distribution by Diet Type</h3>
+                    <p class="text-sm text-gray-500 mb-3">How many recipes belong to each diet category.</p>
+                    <canvas id="pieChart"></canvas>
+                </div>
+
+                <!-- Scatter Plot -->
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold text-lg mb-1">🔵 Protein vs Carbs Distribution</h3>
+                    <p class="text-sm text-gray-500 mb-3">Scatter plot showing relationship between protein and carbs.</p>
+                    <canvas id="scatterPlot"></canvas>
+                </div>
+
+                <!-- Heatmap (Bar grouped) -->
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold text-lg mb-1">🌡️ Macronutrient Heatmap</h3>
+                    <p class="text-sm text-gray-500 mb-3">Grouped comparison of all macronutrients per diet type.</p>
+                    <canvas id="heatmapChart"></canvas>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Top Protein Recipes Table -->
+        <section class="mb-8 bg-white p-4 shadow-lg rounded-lg">
+            <h2 class="text-2xl font-semibold mb-4">🏆 Top 10 High-Protein Recipes</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-blue-600 text-white">
+                            <th class="p-3">#</th>
+                            <th class="p-3">Recipe Name</th>
+                            <th class="p-3">Diet Type</th>
+                            <th class="p-3">Protein (g)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recipeTable"></tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="flex justify-center gap-2 mt-4" id="pagination"></div>
+        </section>
+
+        <!-- API Buttons -->
+        <section class="mb-8 bg-white p-4 shadow-lg rounded-lg">
+            <h2 class="text-xl font-semibold mb-3">API Data Interaction</h2>
+            <div class="flex flex-wrap gap-4">
+                <button onclick="refreshData()" class="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700">
+                    🔵 Get Nutritional Insights
+                </button>
+                <button onclick="showRecipes()" class="bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700">
+                    🟢 Get Recipes
+                </button>
+                <button onclick="showClusters()" class="bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700">
+                    🟣 Get Clusters
+                </button>
+            </div>
+            <div id="apiOutput" class="mt-4 bg-gray-50 rounded p-3 text-sm text-gray-700 hidden"></div>
+        </section>
+
+    </main>
+
+    <footer class="bg-blue-600 p-4 text-white text-center mt-10">
+        <p>© 2025 Nutritional Insights · CPSY300 Group 11 · Powered by Azure Functions & Blob Storage</p>
+    </footer>
+
+    <script>
+        const AZURE_FUNCTION_URL = "https://cpsy300-functions-group11-a4fvhvhyhsa3awde.eastus-01.azurewebsites.net/api/process_data";
+        
+        let allData = null;
+        let charts = {};
+        let currentPage = 1;
+        const rowsPerPage = 5;
+
+        const COLORS = {
+            dash: 'rgba(255, 99, 132, 0.8)',
+            keto: 'rgba(54, 162, 235, 0.8)',
+            mediterranean: 'rgba(255, 206, 86, 0.8)',
+            paleo: 'rgba(75, 192, 192, 0.8)',
+            vegan: 'rgba(153, 102, 255, 0.8)'
+        };
+
+        async function fetchData() {
+            document.getElementById('loadingBar').classList.add('active');
+            document.getElementById('mainContent').classList.add('hidden');
+            document.getElementById('errorMsg').classList.add('hidden');
+
+            try {
+                const response = await fetch(AZURE_FUNCTION_URL);
+                if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+                allData = await response.json();
+                renderDashboard(allData);
+            } catch (err) {
+                document.getElementById('loadingBar').classList.remove('active');
+                document.getElementById('errorMsg').classList.remove('hidden');
+                document.getElementById('errorText').textContent = err.message;
+            }
+        }
+
+        function renderDashboard(data) {
+            document.getElementById('loadingBar').classList.remove('active');
+            document.getElementById('mainContent').classList.remove('hidden');
+
+            // Stats
+            document.getElementById('totalRecipes').textContent = data.total_recipes.toLocaleString();
+            document.getElementById('dietTypes').textContent = data.diet_types;
+            document.getElementById('execTimeStat').textContent = data.execution_time_seconds + 's';
+
+            // Destroy old charts
+            Object.values(charts).forEach(c => c.destroy());
+            charts = {};
+
+            renderBarChart(data.avg_macros);
+            renderPieChart(data.recipe_counts);
+            renderScatterPlot(data.scatter_data);
+            renderHeatmap(data.avg_macros);
+            renderTable(data.top_protein_recipes);
+        }
+
+        function renderBarChart(avgMacros) {
+            const labels = avgMacros.map(d => d.Diet_type.charAt(0).toUpperCase() + d.Diet_type.slice(1));
+            const ctx = document.getElementById('barChart').getContext('2d');
+            charts.bar = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Protein (g)',
+                            data: avgMacros.map(d => d['Protein(g)']),
+                            backgroundColor: 'rgba(54, 162, 235, 0.8)'
+                        },
+                        {
+                            label: 'Carbs (g)',
+                            data: avgMacros.map(d => d['Carbs(g)']),
+                            backgroundColor: 'rgba(255, 206, 86, 0.8)'
+                        },
+                        {
+                            label: 'Fat (g)',
+                            data: avgMacros.map(d => d['Fat(g)']),
+                            backgroundColor: 'rgba(255, 99, 132, 0.8)'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        function renderPieChart(recipeCounts) {
+            const ctx = document.getElementById('pieChart').getContext('2d');
+            charts.pie = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: recipeCounts.map(d => d.Diet_type.charAt(0).toUpperCase() + d.Diet_type.slice(1)),
+                    datasets: [{
+                        data: recipeCounts.map(d => d.Count),
+                        backgroundColor: Object.values(COLORS)
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'right' } }
+                }
+            });
+        }
+
+        function renderScatterPlot(scatterData) {
+            const dietTypes = [...new Set(scatterData.map(d => d.Diet_type))];
+            const datasets = dietTypes.map(diet => ({
+                label: diet.charAt(0).toUpperCase() + diet.slice(1),
+                data: scatterData
+                    .filter(d => d.Diet_type === diet)
+                    .map(d => ({ x: d['Protein(g)'], y: d['Carbs(g)'] })),
+                backgroundColor: COLORS[diet] || 'rgba(100,100,100,0.5)',
+                pointRadius: 4
+            }));
+
+            const ctx = document.getElementById('scatterPlot').getContext('2d');
+            charts.scatter = new Chart(ctx, {
+                type: 'scatter',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: {
+                        x: { title: { display: true, text: 'Protein (g)' } },
+                        y: { title: { display: true, text: 'Carbs (g)' } }
+                    }
+                }
+            });
+        }
+
+        function renderHeatmap(avgMacros) {
+            const ctx = document.getElementById('heatmapChart').getContext('2d');
+            charts.heatmap = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: avgMacros.map(d => d.Diet_type.charAt(0).toUpperCase() + d.Diet_type.slice(1)),
+                    datasets: [
+                        {
+                            label: 'Protein (g)',
+                            data: avgMacros.map(d => d['Protein(g)']),
+                            backgroundColor: 'rgba(54, 162, 235, 0.9)'
+                        },
+                        {
+                            label: 'Carbs (g)',
+                            data: avgMacros.map(d => d['Carbs(g)']),
+                            backgroundColor: 'rgba(255, 159, 64, 0.9)'
+                        },
+                        {
+                            label: 'Fat (g)',
+                            data: avgMacros.map(d => d['Fat(g)']),
+                            backgroundColor: 'rgba(255, 99, 132, 0.9)'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    indexAxis: 'y',
+                    plugins: { legend: { position: 'top' } },
+                    scales: { x: { beginAtZero: true } }
+                }
+            });
+        }
+
+        function renderTable(recipes) {
+            const tbody = document.getElementById('recipeTable');
+            const start = (currentPage - 1) * rowsPerPage;
+            const end = start + rowsPerPage;
+            const pageData = recipes.slice(start, end);
+
+            tbody.innerHTML = pageData.map((r, i) => `
+                <tr class="${(start + i) % 2 === 0 ? 'bg-gray-50' : 'bg-white'} hover:bg-blue-50">
+                    <td class="p-3 font-bold text-blue-600">${start + i + 1}</td>
+                    <td class="p-3">${r.Recipe_name}</td>
+                    <td class="p-3 capitalize">${r.Diet_type}</td>
+                    <td class="p-3 font-semibold">${r['Protein(g)'].toFixed(1)}g</td>
+                </tr>
+            `).join('');
+
+            // Pagination
+            const totalPages = Math.ceil(recipes.length / rowsPerPage);
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = `
+                <button onclick="changePage(${currentPage - 1})" 
+                    class="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400 ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}"
+                    ${currentPage === 1 ? 'disabled' : ''}>Previous</button>
+                ${Array.from({length: totalPages}, (_, i) => `
+                    <button onclick="changePage(${i + 1})" 
+                        class="px-3 py-1 rounded ${currentPage === i + 1 ? 'bg-blue-600 text-white' : 'bg-gray-300 hover:bg-gray-400'}">${i + 1}</button>
+                `).join('')}
+                <button onclick="changePage(${currentPage + 1})"
+                    class="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400 ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}"
+                    ${currentPage === totalPages ? 'disabled' : ''}>Next</button>
+            `;
+        }
+
+        function changePage(page) {
+            if (!allData || page < 1 || page > Math.ceil(allData.top_protein_recipes.length / rowsPerPage)) return;
+            currentPage = page;
+            renderTable(allData.top_protein_recipes);
+        }
+
+        function filterData() {
+            if (!allData) return;
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const filter = document.getElementById('dietFilter').value;
+
+            const filtered = allData.avg_macros.filter(d => {
+                const matchSearch = d.Diet_type.toLowerCase().includes(search);
+                const matchFilter = filter === 'all' || d.Diet_type === filter;
+                return matchSearch && matchFilter;
+            });
+
+            renderBarChart(filtered);
+            renderHeatmap(filtered);
+        }
+
+        function refreshData() {
+            fetchData();
+        }
+
+        function showRecipes() {
+            if (!allData) return;
+            const output = document.getElementById('apiOutput');
+            output.classList.remove('hidden');
+            output.innerHTML = `<strong>Top Recipes from Azure Function:</strong><br><pre>${JSON.stringify(allData.top_protein_recipes.slice(0, 3), null, 2)}</pre>`;
+        }
+
+        function showClusters() {
+            if (!allData) return;
+            const output = document.getElementById('apiOutput');
+            output.classList.remove('hidden');
+            output.innerHTML = `<strong>Diet Type Clusters:</strong><br><pre>${JSON.stringify(allData.recipe_counts, null, 2)}</pre>`;
+        }
+
+        // Load on page start
+        fetchData();
+    </script>
+
+</body>
+</html>
